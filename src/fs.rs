@@ -6,6 +6,9 @@ use fuser::{
 };
 use libc::ENOENT;
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::Read;
+use std::os::unix::fs::FileExt;
 use std::time::{Duration, UNIX_EPOCH};
 
 const TTL: Duration = Duration::from_secs(1);
@@ -49,14 +52,41 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 };
 
 pub struct HTMLFS {
+    pub backend_file: File,
     pub document: Document,
 }
 
 impl HTMLFS {
-    pub fn new(document: Option<Document>) -> Self {
+    pub fn new(file: File) -> Self {
         Self {
-            document: document.unwrap_or_else(|| Document::default()),
+            backend_file: file,
+            document: Document::default(),
         }
+    }
+
+    /// Updates the internal document with the contents of the backend file.
+    pub fn download(&mut self) -> anyhow::Result<()> {
+        // read file
+        let mut content = String::default();
+        self.backend_file.read_to_string(&mut content)?;
+
+        // parse document
+        let document = Document::from(content);
+
+        // update internal document
+        self.document = document;
+
+        Ok(())
+    }
+
+    /// Updates the backend file with the internal document.
+    pub fn upload(&mut self) -> anyhow::Result<usize> {
+        let text = self.document.formatted_text().to_string();
+        let bytes = text.as_bytes();
+
+        self.backend_file
+            .write_at(bytes, 0)
+            .context("can't write to file")
     }
 
     pub fn mount(self, path: &String, options: Option<Vec<MountOption>>) -> anyhow::Result<()> {
