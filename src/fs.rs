@@ -143,11 +143,25 @@ impl Filesystem for HTMLFS {
             return;
         }
 
-        let entries = vec![
-            (1, FileType::Directory, "."),
-            (1, FileType::Directory, ".."),
-            (2, FileType::RegularFile, "hello.txt"),
-        ];
+        let root = self.document.root();
+
+        let children = root.children();
+
+        let entries = children.iter().enumerate().map(|(idx, child)| {
+            let is_empty = child.children().is_empty();
+
+            let name = child.element_ref().unwrap().name.local.to_string();
+
+            (
+                idx as u64,
+                if is_empty {
+                    FileType::RegularFile
+                } else {
+                    FileType::Directory
+                },
+                name,
+            )
+        });
 
         for (i, entry) in entries.into_iter().enumerate().skip(offset as usize) {
             // i + 1 means the index of the next entry
