@@ -1,0 +1,11 @@
+[package]
+name = "htmlfs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+clap = "4.5.41"
+dom_query = "0.19.2"
+fuser = "0.15.1"
+libc = "0.2.174"
