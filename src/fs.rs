@@ -124,6 +124,26 @@ impl HTMLFS {
         counter
     }
 
+    fn make_file_attr(ino: u64, kind: FileType) -> FileAttr {
+        FileAttr {
+            ino,
+            size: 13,
+            blocks: 1,
+            atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+            mtime: UNIX_EPOCH,
+            ctime: UNIX_EPOCH,
+            crtime: UNIX_EPOCH,
+            kind,
+            perm: 0o644,
+            nlink: 1,
+            uid: 501,
+            gid: 20,
+            rdev: 0,
+            flags: 0,
+            blksize: 512,
+        }
+    }
+
     fn lookup_helper(&self, parent: u64, name: String) -> anyhow::Result<NodeRef> {
         let id = self.inode_to_id.get(&parent).context("can't find id")?;
         let node = self.document.tree.get(id).context("can't find node")?;
@@ -131,6 +151,12 @@ impl HTMLFS {
         node.children_it(false)
             .find(|child| child.element_ref().unwrap().name.local.to_string() == name)
             .context("can't find child")
+    }
+
+    fn getattr_helper(&self, ino: u64) -> anyhow::Result<NodeRef> {
+        let id = self.inode_to_id.get(&ino).context("can't find id")?;
+
+        self.document.tree.get(id).context("can't find node")
     }
 
     pub fn mount(self, path: &String, options: Option<Vec<MountOption>>) -> anyhow::Result<()> {
@@ -158,27 +184,14 @@ impl<'a> Filesystem for HTMLFS {
                     }
                 };
 
-                let attr = FileAttr {
+                let attr = Self::make_file_attr(
                     ino,
-                    size: 13,
-                    blocks: 1,
-                    atime: UNIX_EPOCH, // 1970-01-01 00:00:00
-                    mtime: UNIX_EPOCH,
-                    ctime: UNIX_EPOCH,
-                    crtime: UNIX_EPOCH,
-                    kind: if is_empty {
+                    if is_empty {
                         FileType::RegularFile
                     } else {
                         FileType::Directory
                     },
-                    perm: 0o644,
-                    nlink: 1,
-                    uid: 501,
-                    gid: 20,
-                    rdev: 0,
-                    flags: 0,
-                    blksize: 512,
-                };
+                );
 
                 reply.entry(&TTL, &attr, 0);
             }
@@ -187,11 +200,26 @@ impl<'a> Filesystem for HTMLFS {
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
-        match ino {
-            1 => reply.attr(&TTL, &HELLO_DIR_ATTR),
-            2 => reply.attr(&TTL, &HELLO_TXT_ATTR),
-            _ => reply.error(ENOENT),
-        }
+        let node = match self.getattr_helper(ino) {
+            Ok(val) => val,
+            Err(_) => {
+                reply.error(ENOENT);
+                return;
+            }
+        };
+
+        let is_empty = node.children().is_empty();
+
+        let attr = Self::make_file_attr(
+            ino,
+            if is_empty {
+                FileType::RegularFile
+            } else {
+                FileType::Directory
+            },
+        );
+
+        reply.attr(&TTL, &attr);
     }
 
     fn read(
