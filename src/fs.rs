@@ -57,6 +57,7 @@ pub struct HTMLFS {
     pub document: Document,
 
     pub inode_to_id: HashMap<u64, NodeId>,
+    pub id_to_inode: HashMap<NodeId, u64>,
 }
 
 impl HTMLFS {
@@ -65,6 +66,7 @@ impl HTMLFS {
             backend_file: file,
             document: Document::default(),
             inode_to_id: HashMap::default(),
+            id_to_inode: HashMap::default(),
         }
     }
 
@@ -97,8 +99,14 @@ impl HTMLFS {
     pub fn refresh_inodes(&mut self) {
         // necessary?
         self.inode_to_id.clear();
+        self.id_to_inode.clear();
 
         Self::refresh_inodes_rec(&mut self.inode_to_id, self.document.root(), 2);
+
+        // does this suck?
+        for (inode, id) in &self.inode_to_id {
+            self.id_to_inode.insert(*id, *inode);
+        }
     }
 
     fn refresh_inodes_rec(
