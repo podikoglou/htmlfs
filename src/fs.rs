@@ -132,11 +132,69 @@ impl HTMLFS {
 
 impl<'a> Filesystem for HTMLFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
-        if parent == 1 && name.to_str() == Some("hello.txt") {
-            reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
-        } else {
-            reply.error(ENOENT);
+        let name = name.to_str().unwrap().to_string();
+
+        match self.inode_to_id.get(&parent) {
+            Some(id) => match self.document.tree.get(id) {
+                Some(node) => {
+                    // `node` here is the directory we're in (`parent`)
+
+                    // TODO: handle indexed file names (i.e. if there are multiple nodes with the
+                    // same tag, add a `-n` where n is the index (1-indexed)
+
+                    let child = node
+                        .children_it(false)
+                        .find(|child| child.element_ref().unwrap().name.local.to_string() == name);
+
+                    match child {
+                        Some(node) => {
+                            let is_empty = node.children().is_empty();
+
+                            let ino = match self.id_to_inode.get(&node.id) {
+                                Some(val) => *val,
+                                None => {
+                                    reply.error(ENOENT);
+                                    return;
+                                }
+                            };
+
+                            let attr = FileAttr {
+                                ino,
+                                size: 13,
+                                blocks: 1,
+                                atime: UNIX_EPOCH, // 1970-01-01 00:00:00
+                                mtime: UNIX_EPOCH,
+                                ctime: UNIX_EPOCH,
+                                crtime: UNIX_EPOCH,
+                                kind: if is_empty {
+                                    FileType::RegularFile
+                                } else {
+                                    FileType::Directory
+                                },
+                                perm: 0o644,
+                                nlink: 1,
+                                uid: 501,
+                                gid: 20,
+                                rdev: 0,
+                                flags: 0,
+                                blksize: 512,
+                            };
+
+                            reply.entry(&TTL, &attr, 0);
+                        }
+                        None => reply.error(ENOENT),
+                    }
+                }
+                None => reply.error(ENOENT),
+            },
+            None => reply.error(ENOENT),
         }
+
+        // if parent == 1 && name.to_str() == Some("hello.txt") {
+        //     reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
+        // } else {
+        //     reply.error(ENOENT);
+        // }
     }
 
     fn getattr(&mut self, _req: &Request, ino: u64, _fh: Option<u64>, reply: ReplyAttr) {
