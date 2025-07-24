@@ -98,7 +98,7 @@ impl HTMLFS {
         // necessary?
         self.inode_to_id.clear();
 
-        Self::refresh_inodes_rec(&mut self.inode_to_id, self.document.root(), 0);
+        Self::refresh_inodes_rec(&mut self.inode_to_id, self.document.root(), 2);
     }
 
     fn refresh_inodes_rec(
