@@ -144,17 +144,31 @@ impl HTMLFS {
         }
     }
 
-    fn lookup_helper(&self, parent: u64, name: String) -> anyhow::Result<NodeRef> {
-        let id = self.inode_to_id.get(&parent).context("can't find id")?;
-        let node = self.document.tree.get(id).context("can't find node")?;
+    fn get_id_by_inode(&self, ino: u64) -> anyhow::Result<&NodeId> {
+        self.inode_to_id.get(&ino).context("can't find id")
+    }
 
-        node.children_it(false)
+    fn get_inode_by_id(&self, id: NodeId) -> anyhow::Result<&u64> {
+        self.id_to_inode.get(&id).context("can't find inode")
+    }
+
+    fn get_node_by_inode(&self, ino: u64) -> anyhow::Result<NodeRef> {
+        let id = self.get_id_by_inode(ino)?;
+
+        self.document.tree.get(id).context("can't find node")
+    }
+
+    fn lookup_helper(&self, parent_ino: u64, name: String) -> anyhow::Result<NodeRef> {
+        let parent_node = self.get_node_by_inode(parent_ino)?;
+
+        parent_node
+            .children_it(false)
             .find(|child| child.element_ref().unwrap().name.local.to_string() == name)
             .context("can't find child")
     }
 
     fn getattr_helper(&self, ino: u64) -> anyhow::Result<NodeRef> {
-        let id = self.inode_to_id.get(&ino).context("can't find id")?;
+        let id = self.get_id_by_inode(ino)?;
 
         self.document.tree.get(id).context("can't find node")
     }
@@ -176,9 +190,9 @@ impl<'a> Filesystem for HTMLFS {
             Ok(node) => {
                 let is_empty = node.children().is_empty();
 
-                let ino = match self.id_to_inode.get(&node.id) {
-                    Some(val) => *val,
-                    None => {
+                let ino = match self.get_inode_by_id(node.id) {
+                    Ok(val) => *val,
+                    Err(_) => {
                         reply.error(ENOENT);
                         return;
                     }
@@ -233,10 +247,12 @@ impl<'a> Filesystem for HTMLFS {
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
-        match self.inode_to_id.get(&ino) {
-            Some(_) => reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]),
-            None => reply.error(ENOENT),
-        }
+        reply.error(ENOENT);
+
+        // match self.inode_to_id.get(&ino) {
+        //     Some(_) => reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]),
+        //     None => reply.error(ENOENT),
+        // }
     }
 
     fn readdir(
