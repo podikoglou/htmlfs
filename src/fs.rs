@@ -1,10 +1,11 @@
 use anyhow::Context;
-use dom_query::Document;
+use dom_query::{Document, NodeId, NodeRef};
 use fuser::{
     FileAttr, FileType, Filesystem, MountOption, ReplyAttr, ReplyData, ReplyDirectory, ReplyEntry,
     Request,
 };
 use libc::ENOENT;
+use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::io::Read;
@@ -54,6 +55,8 @@ const HELLO_TXT_ATTR: FileAttr = FileAttr {
 pub struct HTMLFS {
     pub backend_file: File,
     pub document: Document,
+
+    pub inode_to_id: HashMap<u64, NodeId>,
 }
 
 impl HTMLFS {
@@ -61,6 +64,7 @@ impl HTMLFS {
         Self {
             backend_file: file,
             document: Document::default(),
+            inode_to_id: HashMap::default(),
         }
     }
 
@@ -75,6 +79,7 @@ impl HTMLFS {
 
         // update internal document
         self.document = document;
+        self.refresh_inodes();
 
         Ok(())
     }
@@ -89,13 +94,35 @@ impl HTMLFS {
             .context("can't write to file")
     }
 
+    pub fn refresh_inodes(&mut self) {
+        // necessary?
+        self.inode_to_id.clear();
+
+        Self::refresh_inodes_rec(&mut self.inode_to_id, self.document.root(), 0);
+    }
+
+    fn refresh_inodes_rec(
+        mapping: &mut HashMap<u64, NodeId>,
+        node: NodeRef,
+        mut counter: u64,
+    ) -> u64 {
+        mapping.insert(counter, node.id);
+        counter += 1;
+
+        for child in node.children() {
+            counter = Self::refresh_inodes_rec(mapping, child, counter)
+        }
+
+        counter
+    }
+
     pub fn mount(self, path: &String, options: Option<Vec<MountOption>>) -> anyhow::Result<()> {
         fuser::mount2(self, path, &options.unwrap_or_else(|| default_options()))
             .context("couldn't mount filesystem")
     }
 }
 
-impl Filesystem for HTMLFS {
+impl<'a> Filesystem for HTMLFS {
     fn lookup(&mut self, _req: &Request, parent: u64, name: &OsStr, reply: ReplyEntry) {
         if parent == 1 && name.to_str() == Some("hello.txt") {
             reply.entry(&TTL, &HELLO_TXT_ATTR, 0);
@@ -123,10 +150,9 @@ impl Filesystem for HTMLFS {
         _lock: Option<u64>,
         reply: ReplyData,
     ) {
-        if ino == 2 {
-            reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]);
-        } else {
-            reply.error(ENOENT);
+        match self.inode_to_id.get(&ino) {
+            Some(_) => reply.data(&HELLO_TXT_CONTENT.as_bytes()[offset as usize..]),
+            None => reply.error(ENOENT),
         }
     }
 
